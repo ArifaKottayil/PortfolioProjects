@@ -1,301 +1,108 @@
 /*
+Data Cleaning in MySQL for Nashville Housing Data
 
-Cleaning Data in SQL Queries
-
+This script performs standardization of date formats, populates missing address data, 
+splits address fields into individual components, updates boolean fields, removes duplicates, 
+and deletes unused columns in the NashvilleHousing dataset.
 */
 
-
-Select *
-From PortfolioProject.dbo.NashvilleHousing
-
---------------------------------------------------------------------------------------------------------------------------
+-- ------------------------------------------------------------------------------------------------------------------------
 
 -- Standardize Date Format
 
-
-Select saleDateConverted, CONVERT(Date,SaleDate)
-From PortfolioProject.dbo.NashvilleHousing
-
-
-Update NashvilleHousing
-SET SaleDate = CONVERT(Date,SaleDate)
-
--- If it doesn't Update properly
+-- Convert SaleDate to a standardized DATE format and update the table
 
 ALTER TABLE NashvilleHousing
-Add SaleDateConverted Date;
+ADD COLUMN SaleDateConverted DATE;
 
-Update NashvilleHousing
-SET SaleDateConverted = CONVERT(Date,SaleDate)
+UPDATE NashvilleHousing
+SET SaleDateConverted = STR_TO_DATE(SaleDate, '%m/%d/%Y'); -- Assuming dates are in MM/DD/YYYY format
 
-
- --------------------------------------------------------------------------------------------------------------------------
+-- ------------------------------------------------------------------------------------------------------------------------
 
 -- Populate Property Address data
 
-Select *
-From PortfolioProject.dbo.NashvilleHousing
---Where PropertyAddress is null
-order by ParcelID
+-- Fill missing PropertyAddress entries by matching ParcelID with records that have the address data
 
+UPDATE NashvilleHousing a
+JOIN NashvilleHousing b ON a.ParcelID = b.ParcelID
+    AND a.UniqueID <> b.UniqueID
+SET a.PropertyAddress = COALESCE(a.PropertyAddress, b.PropertyAddress)
+WHERE a.PropertyAddress IS NULL;
 
-
-Select a.ParcelID, a.PropertyAddress, b.ParcelID, b.PropertyAddress, ISNULL(a.PropertyAddress,b.PropertyAddress)
-From PortfolioProject.dbo.NashvilleHousing a
-JOIN PortfolioProject.dbo.NashvilleHousing b
-	on a.ParcelID = b.ParcelID
-	AND a.[UniqueID ] <> b.[UniqueID ]
-Where a.PropertyAddress is null
-
-
-Update a
-SET PropertyAddress = ISNULL(a.PropertyAddress,b.PropertyAddress)
-From PortfolioProject.dbo.NashvilleHousing a
-JOIN PortfolioProject.dbo.NashvilleHousing b
-	on a.ParcelID = b.ParcelID
-	AND a.[UniqueID ] <> b.[UniqueID ]
-Where a.PropertyAddress is null
-
-
-
-
---------------------------------------------------------------------------------------------------------------------------
+-- ------------------------------------------------------------------------------------------------------------------------
 
 -- Breaking out Address into Individual Columns (Address, City, State)
 
-
-Select PropertyAddress
-From PortfolioProject.dbo.NashvilleHousing
---Where PropertyAddress is null
---order by ParcelID
-
-SELECT
-SUBSTRING(PropertyAddress, 1, CHARINDEX(',', PropertyAddress) -1 ) as Address
-, SUBSTRING(PropertyAddress, CHARINDEX(',', PropertyAddress) + 1 , LEN(PropertyAddress)) as Address
-
-From PortfolioProject.dbo.NashvilleHousing
-
+-- Split PropertyAddress into PropertySplitAddress (street address) and PropertySplitCity (city name)
 
 ALTER TABLE NashvilleHousing
-Add PropertySplitAddress Nvarchar(255);
+ADD COLUMN PropertySplitAddress VARCHAR(255),
+ADD COLUMN PropertySplitCity VARCHAR(255);
 
-Update NashvilleHousing
-SET PropertySplitAddress = SUBSTRING(PropertyAddress, 1, CHARINDEX(',', PropertyAddress) -1 )
+UPDATE NashvilleHousing
+SET PropertySplitAddress = SUBSTRING_INDEX(PropertyAddress, ',', 1),
+    PropertySplitCity = SUBSTRING_INDEX(SUBSTRING_INDEX(PropertyAddress, ',', -2), ',', 1);
 
-
-ALTER TABLE NashvilleHousing
-Add PropertySplitCity Nvarchar(255);
-
-Update NashvilleHousing
-SET PropertySplitCity = SUBSTRING(PropertyAddress, CHARINDEX(',', PropertyAddress) + 1 , LEN(PropertyAddress))
-
-
-
-
-Select *
-From PortfolioProject.dbo.NashvilleHousing
-
-
-
-
-
-Select OwnerAddress
-From PortfolioProject.dbo.NashvilleHousing
-
-
-Select
-PARSENAME(REPLACE(OwnerAddress, ',', '.') , 3)
-,PARSENAME(REPLACE(OwnerAddress, ',', '.') , 2)
-,PARSENAME(REPLACE(OwnerAddress, ',', '.') , 1)
-From PortfolioProject.dbo.NashvilleHousing
-
-
+-- Split OwnerAddress into OwnerSplitAddress (street address), OwnerSplitCity (city name), and OwnerSplitState (state)
 
 ALTER TABLE NashvilleHousing
-Add OwnerSplitAddress Nvarchar(255);
+ADD COLUMN OwnerSplitAddress VARCHAR(255),
+ADD COLUMN OwnerSplitCity VARCHAR(255),
+ADD COLUMN OwnerSplitState VARCHAR(255);
 
-Update NashvilleHousing
-SET OwnerSplitAddress = PARSENAME(REPLACE(OwnerAddress, ',', '.') , 3)
+UPDATE NashvilleHousing
+SET OwnerSplitAddress = SUBSTRING_INDEX(OwnerAddress, ',', 1),
+    OwnerSplitCity = SUBSTRING_INDEX(SUBSTRING_INDEX(OwnerAddress, ',', -2), ',', 1),
+    OwnerSplitState = SUBSTRING_INDEX(OwnerAddress, ',', -1);
 
+-- ------------------------------------------------------------------------------------------------------------------------
 
-ALTER TABLE NashvilleHousing
-Add OwnerSplitCity Nvarchar(255);
+-- Change 'Y' and 'N' to 'Yes' and 'No' in the "SoldAsVacant" field
 
-Update NashvilleHousing
-SET OwnerSplitCity = PARSENAME(REPLACE(OwnerAddress, ',', '.') , 2)
+UPDATE NashvilleHousing
+SET SoldAsVacant = CASE
+    WHEN SoldAsVacant = 'Y' THEN 'Yes'
+    WHEN SoldAsVacant = 'N' THEN 'No'
+    ELSE SoldAsVacant
+END;
 
-
-
-ALTER TABLE NashvilleHousing
-Add OwnerSplitState Nvarchar(255);
-
-Update NashvilleHousing
-SET OwnerSplitState = PARSENAME(REPLACE(OwnerAddress, ',', '.') , 1)
-
-
-
-Select *
-From PortfolioProject.dbo.NashvilleHousing
-
-
-
-
---------------------------------------------------------------------------------------------------------------------------
-
-
--- Change Y and N to Yes and No in "Sold as Vacant" field
-
-
-Select Distinct(SoldAsVacant), Count(SoldAsVacant)
-From PortfolioProject.dbo.NashvilleHousing
-Group by SoldAsVacant
-order by 2
-
-
-
-
-Select SoldAsVacant
-, CASE When SoldAsVacant = 'Y' THEN 'Yes'
-	   When SoldAsVacant = 'N' THEN 'No'
-	   ELSE SoldAsVacant
-	   END
-From PortfolioProject.dbo.NashvilleHousing
-
-
-Update NashvilleHousing
-SET SoldAsVacant = CASE When SoldAsVacant = 'Y' THEN 'Yes'
-	   When SoldAsVacant = 'N' THEN 'No'
-	   ELSE SoldAsVacant
-	   END
-
-
-
-
-
-
------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- ------------------------------------------------------------------------------------------------------------------------
 
 -- Remove Duplicates
 
-WITH RowNumCTE AS(
-Select *,
-	ROW_NUMBER() OVER (
-	PARTITION BY ParcelID,
-				 PropertyAddress,
-				 SalePrice,
-				 SaleDate,
-				 LegalReference
-				 ORDER BY
-					UniqueID
-					) row_num
+-- Use a Common Table Expression (CTE) to identify and remove duplicates based on unique fields such as ParcelID, PropertyAddress, SalePrice, SaleDate, and LegalReference
 
-From PortfolioProject.dbo.NashvilleHousing
---order by ParcelID
+WITH RowNumCTE AS (
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY ParcelID, PropertyAddress, SalePrice, SaleDate, LegalReference
+                              ORDER BY UniqueID) AS row_num
+    FROM NashvilleHousing
 )
-Select *
-From RowNumCTE
-Where row_num > 1
-Order by PropertyAddress
+DELETE FROM NashvilleHousing
+WHERE UniqueID IN (SELECT UniqueID FROM RowNumCTE WHERE row_num > 1);
 
-
-
-Select *
-From PortfolioProject.dbo.NashvilleHousing
-
-
-
-
----------------------------------------------------------------------------------------------------------
+-- ------------------------------------------------------------------------------------------------------------------------
 
 -- Delete Unused Columns
 
+ALTER TABLE NashvilleHousing
+DROP COLUMN OwnerAddress,
+DROP COLUMN TaxDistrict,
+DROP COLUMN PropertyAddress,
+DROP COLUMN SaleDate;
 
+-- ------------------------------------------------------------------------------------------------------------------------
 
-Select *
-From PortfolioProject.dbo.NashvilleHousing
+/* Importing Data using LOAD DATA INFILE (MySQL)
 
+-- In MySQL, the LOAD DATA INFILE statement is used to bulk import data from a CSV file.
+-- Ensure that MySQL server permissions allow file access and adjust the file path accordingly.
 
-ALTER TABLE PortfolioProject.dbo.NashvilleHousing
-DROP COLUMN OwnerAddress, TaxDistrict, PropertyAddress, SaleDate
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
------------------------------------------------------------------------------------------------
------------------------------------------------------------------------------------------------
-
---- Importing Data using OPENROWSET and BULK INSERT	
-
---  More advanced and looks cooler, but have to configure server appropriately to do correctly
---  Wanted to provide this in case you wanted to try it
-
-
---sp_configure 'show advanced options', 1;
---RECONFIGURE;
---GO
---sp_configure 'Ad Hoc Distributed Queries', 1;
---RECONFIGURE;
---GO
-
-
---USE PortfolioProject 
-
---GO 
-
---EXEC master.dbo.sp_MSset_oledb_prop N'Microsoft.ACE.OLEDB.12.0', N'AllowInProcess', 1 
-
---GO 
-
---EXEC master.dbo.sp_MSset_oledb_prop N'Microsoft.ACE.OLEDB.12.0', N'DynamicParameters', 1 
-
---GO 
-
-
----- Using BULK INSERT
-
---USE PortfolioProject;
---GO
---BULK INSERT nashvilleHousing FROM 'C:\Temp\SQL Server Management Studio\Nashville Housing Data for Data Cleaning Project.csv'
---   WITH (
---      FIELDTERMINATOR = ',',
---      ROWTERMINATOR = '\n'
---);
---GO
-
-
----- Using OPENROWSET
---USE PortfolioProject;
---GO
---SELECT * INTO nashvilleHousing
---FROM OPENROWSET('Microsoft.ACE.OLEDB.12.0',
---    'Excel 12.0; Database=C:\Users\alexf\OneDrive\Documents\SQL Server Management Studio\Nashville Housing Data for Data Cleaning Project.csv', [Sheet1$]);
---GO
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+-- LOAD DATA INFILE '/path/to/Nashville_Housing_Data.csv' 
+-- INTO TABLE NashvilleHousing
+-- FIELDS TERMINATED BY ',' 
+-- LINES TERMINATED BY '\n'
+-- IGNORE 1 ROWS; -- Skip header row
+*/
 
